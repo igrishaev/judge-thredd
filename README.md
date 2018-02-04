@@ -122,3 +122,54 @@ find edge cases.
 There is a failing unit test included as a starting point.
 
 `lein test`
+
+# The solution
+
+My solution consists from the following steps.
+
+1. Iterate on triples gotten from the `irc-messages` function.
+2. For each triple, turn int into a map.
+3. Detect an addressee.
+4. Try to guess a thread index with various ways. They are commented in the code
+   and are given with examples.
+5. On each step, update a set of users and an index map.
+6. Once each message has a thread index, sort them by `[:thread :ts]` pair and
+   chunk them by `:thread` field. The result will be a collection threads where
+   each thread is a vector of messages.
+
+## Simple example
+
+The expression
+
+```clojure
+judge-thredd.log-readers> (-> "example-irc-log-2015-08-07.txt" print-threads)
+```
+
+returns the following into stdout:
+
+```bash
+[08:45:00] Alice: Good morning!
+[08:47:00] Brian: Alice: Good morning!
+[08:54:00] Eddie: Alice: morning!
+
+[08:52:00] Chuck: Anybody up for breakfast burritos?
+[08:53:00] Daisy: Chuck: I love breakfast burritos
+[08:55:00] Daisy: Are they in the kitchen?
+[08:56:00] Chuck: Daisy: yes
+```
+
+## Real-data example
+
+When operating on a real IRC data, it would be better to dump the output into a
+file for further analysis.
+
+```clojure
+(spit
+  "clojure-irc-log-threaded.txt"
+  (with-out-str
+    (-> "clojure-irc-log-2015-08-07.txt"
+        print-threads)))
+```
+
+See the final `clojure-irc-log-threaded.txt` file in the `resources` directory
+of a project.
