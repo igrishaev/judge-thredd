@@ -72,22 +72,31 @@
 (def thread-window (* 60 10))
 
 (defn guess-reply
+  "Returns an addressee of a message."
   [message]
   (let [parts (split message #"(: )|(, )" 2)]
     (when (> (count parts) 1)
       (first parts))))
 
-(defn date-diff [d1 d2]
+(defn date-diff
+  "Returns difference b/w two Joda dates in seconds."
+  [d1 d2]
   (tc/in-seconds (tc/interval d1 d2)))
 
-(defn make-threads [records-origin]
+(defn make-threads
+  "Returns a vector of threads. Each thread is a vector of messages.
+  Each message is a map that keeps a timestamp, a user, reply-to and text.
 
-  (loop [idx 0
-         messages []
-         users #{}
-         records records-origin
-         msg-by-user {}
-         rpl-by-user {}]
+  The function takes a vector of triples `[ts user text]`
+  received from `irc-messages`."
+  [records]
+
+  (loop [idx 0             ;; the current index (ID of a message)
+         messages []       ;; a vector of message maps
+         users #{}         ;; a set of users which is extended on each step
+         records records   ;;
+         msg-by-user {}    ;; an index map; tracks the last message index by a user
+         ]
 
     (if (empty? records)
 
@@ -97,19 +106,32 @@
       (let [[ts user text] (first records)
 
             users (conj users user)
+
+            ;; Try guess a reply.
             reply (when-let [reply (guess-reply text)]
                     (get users reply))
 
-            ;; Trying to guess a thread. The order matters.
+            ;; Trying to guess a thread. The order matters
+            ;; (from the most reliable method to the least one).
 
-            ;; reply
+            ;; By reply: when a user replies to somebody else.
+            ;; For example:
+            ;;
+            ;; Ann> Good morning!
+            ;; Jim> Ann: morning! ;; direct message
             thread (when reply
                      (some->> reply
                               (get msg-by-user)
                               (get messages)
                               :thread))
 
-            ;; series of messages
+            ;; This is a series of messages, when a user posts
+            ;; again and again, for example:
+            ;;
+            ;; Ann> Does anybody have an extra pen?
+            ;; Jim> Ann: let me see
+            ;; Jim> I've got one
+            ;; Jim> you'll find me at the 2nd floor ;; he is still talking to Ann
             thread (or thread
                        (when-let [last-msg (peek messages)]
                          (when (= (:user last-msg) user)
@@ -117,7 +139,16 @@
                              (when (< diff thread-window)
                                (:thread last-msg))))))
 
-            ;; previous messages
+            ;; Referring the previous message. A user doesn't reply
+            ;; to anybody, but the time-frame between his or her messages
+            ;; is short (depends on a global constant). If so, that user
+            ;; probably talks to the same person her or she were talking
+            ;; before:
+            ;;
+            ;; Jim> Did anyone manage to install Emacs on Windows?
+            ;; Ann> Jim: I did, but it was long ago.   ;; she talks to Jim
+            ;; Jim> great, could you give me a hand with that please?
+            ;; Ann> sure, not a problem                ;; and still talking to him
             thread (or thread
                        (when-let [msg-idx (get msg-by-user user)]
                          (when-let [last-msg (get messages msg-idx)]
@@ -125,7 +156,10 @@
                              (when (< diff thread-window)
                                (:thread last-msg))))))
 
-            ;; answering the previous question
+            ;; Answering the previous question:
+            ;;
+            ;; Ann: does anybody have an extra pen?
+            ;; Jim: I've got one =) ;; he is answering the last question
             thread (or thread
                        (when-let [last-msg (peek messages)]
                          (when (= (last (:text last-msg)) \?)
@@ -139,26 +173,7 @@
                              (when (< diff thread-window)
                                (:thread last-msg))))))
 
-            ;; just time
-            ;; thread (or thread
-            ;;            (when-let [last-msg (peek messages)]
-            ;;              (let [diff (date-diff (:ts last-msg) ts)]
-            ;;                (when (< diff thread-window)
-            ;;                  (:thread last-msg)))))
-
-            ;; junk
-            ;; thread (or thread
-            ;;            (when-let [msg-idx (get msg-by-user user)]
-            ;;              (when-let [last-msg (get messages msg-idx)]
-            ;;                (let [diff (date-diff (:ts last-msg) ts)]
-            ;;                  (when (< diff thread-window)
-            ;;                    (when-let [last-reply (get rpl-by-user user)]
-            ;;                      (when-let [msg-idx (get msg-by-user last-reply)]
-            ;;                        (when-let [last-msg (get messages msg-idx)]
-            ;;                          (:thread last-msg)))))))))
-
-
-            ;; a new thread otherwise
+            ;; This is a new thread otherwise.
             thread (or thread idx)
 
             message {:idx idx
@@ -172,10 +187,10 @@
                (conj messages message)
                users
                (rest records)
-               (assoc msg-by-user user idx)
-               (assoc rpl-by-user user reply))))))
+               (assoc msg-by-user user idx))))))
 
 (defn msg->string
+  "Turns a message map into a log string."
   [{:keys [ts user text]}]
   (format "[%s] %s: %s"
           (tf/unparse hh-mm-ss->datetime ts)
@@ -183,6 +198,8 @@
           text))
 
 (defn print-threads
+  "Prints messages from a log file thread-wisely
+  putting an empty string after each thread."
   [filename]
   (doseq [thread (-> filename irc-messages make-threads)]
     (doseq [message thread]
