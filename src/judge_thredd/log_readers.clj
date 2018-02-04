@@ -40,6 +40,8 @@
      #object[org.joda.time.DateTime \"2015-08-07T08:45:00.000Z\"]"
   [datetime raw-time]
   (let [{:keys [hours minutes seconds]} (raw-time->datetime-map raw-time)]
+    ;; here, it would be better to keep Joda dates
+    ;; rather than native Date due to TZ issues.
     (tc/plus datetime
              (tc/hours hours)
              (tc/minutes minutes)
