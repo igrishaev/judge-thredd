@@ -69,11 +69,11 @@
 ;; The solution part.
 ;;
 
-(def thread-window (* 60 5))
+(def thread-window (* 60 10))
 
 (defn guess-reply
   [message]
-  (let [parts (split message #": " 2)]
+  (let [parts (split message #"(: )|(, )" 2)]
     (when (> (count parts) 1)
       (first parts))))
 
@@ -100,27 +100,65 @@
             reply (when-let [reply (guess-reply text)]
                     (get users reply))
 
+            ;; Trying to guess a thread. The order matters.
+
+            ;; reply
             thread (when reply
                      (some->> reply
                               (get msg-by-user)
                               (get messages)
                               :thread))
 
+            ;; series of messages
+            thread (or thread
+                       (when-let [last-msg (peek messages)]
+                         (when (= (:user last-msg) user)
+                           (let [diff (date-diff (:ts last-msg) ts)]
+                             (when (< diff thread-window)
+                               (:thread last-msg))))))
+
+            ;; previous messages
             thread (or thread
                        (when-let [msg-idx (get msg-by-user user)]
                          (when-let [last-msg (get messages msg-idx)]
                            (let [diff (date-diff (:ts last-msg) ts)]
                              (when (< diff thread-window)
-                               (when-let [last-reply (get rpl-by-user user)]
-                                 (when-let [msg-idx (get msg-by-user last-reply)]
-                                   (when-let [last-msg (get messages msg-idx)]
-                                     (:thread last-msg)))))))))
+                               (:thread last-msg))))))
 
+            ;; answering the previous question
             thread (or thread
                        (when-let [last-msg (peek messages)]
                          (when (= (last (:text last-msg)) \?)
                            (:thread last-msg))))
 
+            ;; prev message
+            thread (or thread
+                       (when-let [msg-idx (get msg-by-user user)]
+                         (when-let [last-msg (get messages msg-idx)]
+                           (let [diff (date-diff (:ts last-msg) ts)]
+                             (when (< diff thread-window)
+                               (:thread last-msg))))))
+
+            ;; just time
+            ;; thread (or thread
+            ;;            (when-let [last-msg (peek messages)]
+            ;;              (let [diff (date-diff (:ts last-msg) ts)]
+            ;;                (when (< diff thread-window)
+            ;;                  (:thread last-msg)))))
+
+            ;; junk
+            ;; thread (or thread
+            ;;            (when-let [msg-idx (get msg-by-user user)]
+            ;;              (when-let [last-msg (get messages msg-idx)]
+            ;;                (let [diff (date-diff (:ts last-msg) ts)]
+            ;;                  (when (< diff thread-window)
+            ;;                    (when-let [last-reply (get rpl-by-user user)]
+            ;;                      (when-let [msg-idx (get msg-by-user last-reply)]
+            ;;                        (when-let [last-msg (get messages msg-idx)]
+            ;;                          (:thread last-msg)))))))))
+
+
+            ;; a new thread otherwise
             thread (or thread idx)
 
             message {:idx idx
@@ -139,7 +177,14 @@
 
 (defn msg->string
   [{:keys [ts user text]}]
-  (format "%s %s> %s"
+  (format "[%s] %s: %s"
           (tf/unparse hh-mm-ss->datetime ts)
           user
           text))
+
+(defn print-threads
+  [filename]
+  (doseq [thread (-> filename irc-messages make-threads)]
+    (doseq [message thread]
+      (println (msg->string message)))
+    (println)))
