@@ -167,14 +167,6 @@
                          (when (= (last (:text last-msg)) \?)
                            (:thread last-msg))))
 
-            ;; prev message
-            thread (or thread
-                       (when-let [msg-idx (get msg-by-user user)]
-                         (when-let [last-msg (get messages msg-idx)]
-                           (let [diff (date-diff (:ts last-msg) ts)]
-                             (when (< diff thread-window)
-                               (:thread last-msg))))))
-
             ;; This is a new thread otherwise.
             thread (or thread idx)
 
